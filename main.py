@@ -7,6 +7,7 @@ from core.router import api_router
 from core.database import create_tables
 from middleware.log import LogMiddleware
 from middleware.auth import AuthError, auth_error_handler
+from middleware.readonly import ReadOnlyMiddleware
 from middleware.exceptions import (
     http_exception_handler,
     validation_exception_handler,
@@ -33,6 +34,9 @@ app.add_exception_handler(Exception, generic_exception_handler)
 
 # 注册日志中间件
 app.add_middleware(LogMiddleware)
+
+# 注册只读模式中间件（readonly.enabled 为 1 时拦截除登录外的非 GET 请求）
+app.add_middleware(ReadOnlyMiddleware)
 
 
 @app.get("/")
