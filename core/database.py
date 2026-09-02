@@ -7,6 +7,7 @@ from models.system.role import SysRole
 from models.system.menu import SysMenu
 from models.system.permission import SysPermission
 from models.system.log import SysLog
+from models.system.article import SysArticle
 
 
 async def create_tables():
