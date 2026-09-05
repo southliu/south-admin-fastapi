@@ -20,12 +20,12 @@ south-admin-fastApi/
 ├── core/
 │   ├── database.py              # 数据库初始化
 │   └── router.py                # 路由注册
-├── crud/
-│   ├── user.py                  # 用户 CRUD
-│   ├── role.py                  # 角色 CRUD
-│   ├── menu.py                  # 菜单 CRUD
-│   ├── permission.py            # 权限 CRUD
-│   └── log.py                   # 日志 CRUD
+├── services/
+│   ├── user.py                  # 用户服务
+│   ├── role.py                  # 角色服务
+│   ├── menu.py                  # 菜单服务
+│   ├── permission.py            # 权限服务
+│   └── log.py                   # 日志服务
 ├── middleware/
 │   └── auth.py                  # JWT 认证中间件
 ├── models/

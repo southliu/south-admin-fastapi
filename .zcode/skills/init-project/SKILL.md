@@ -17,7 +17,7 @@ description: 初始化/重置本项目为纯净脚手架时必须使用。当用
 | 目录 | 保留 |
 |---|---|
 | `api/routes/` | `dashboard.py`、`system/` 下的 user/role/menu/permission/log 五个文件 |
-| `crud/system/` | user/role/menu/permission/log |
+| `services/system/` | user/role/menu/permission/log |
 | `models/system/` | user/role/menu/permission/log（`models/base.py` 保留） |
 | `schemas/` | `base.py`、`response.py`、user/role/menu/permission/log |
 | 其余 | `core/`、`config/`、`middleware/`、`utils/`、`main.py`、所有 `__init__.py` 全部保留 |
@@ -26,7 +26,7 @@ description: 初始化/重置本项目为纯净脚手架时必须使用。当用
 
 ## 三、删除与清理（共 4 处）
 
-1. **删模块文件**：白名单之外的业务模块文件，四个目录各一份（如 article 对应 `api/routes/system/article.py`、`crud/system/article.py`、`models/system/article.py`、`schemas/article.py`）。
+1. **删模块文件**：白名单之外的业务模块文件，四个目录各一份（如 article 对应 `api/routes/system/article.py`、`services/system/article.py`、`models/system/article.py`、`schemas/article.py`）。
 2. **`core/router.py`**：重写为只挂 system_router（include 五件套）与 `dashboard.router`；删除业务路由块（如 `content_router`）及其 import。
 3. **`core/database.py`**：模型 import 只保留五个 Sys 模型。建表靠这里的 import 发现模型：漏删会 ImportError，漏保留会建不出表。
 4. **`database/init.sql`**：种子数据收敛为"仪表盘 + 系统管理"：

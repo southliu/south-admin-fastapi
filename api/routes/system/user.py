@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.user import (
+from services.system.user import (
     get_user_by_username,
     get_user_page,
     get_user_list,

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.article import (
+from services.system.article import (
     get_article_page,
     get_article_by_id,
     create_article,

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.log import create_log, get_log_page, delete_log, batch_delete_log
+from services.system.log import create_log, get_log_page, delete_log, batch_delete_log
 from schemas.response import ResponseModel
 from schemas.log import CreateLogRequest
 from schemas.menu import BatchDeleteRequest

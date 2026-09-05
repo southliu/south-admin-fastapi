@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.role import (
+from services.system.role import (
     get_role_page,
     get_role_list,
     get_role_by_id,

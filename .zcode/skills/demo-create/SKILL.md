@@ -1,6 +1,6 @@
 ---
 name: demo-create
-description: 生成或修改增删改查(CRUD)模块时必须使用本skill。当用户要求新增业务模块、生成增删改查接口、创建xxx管理功能、或修改现有CRUD代码时，按本skill规定的文件结构、命名和接口契约生成，保证与项目现有格式一致。适用范围：新建 Model/Schema/Crud/Route、批量删除、状态切换、分页过滤等。
+description: 生成或修改增删改查(CRUD)模块时必须使用本skill。当用户要求新增业务模块、生成增删改查接口、创建xxx管理功能、或修改现有CRUD代码时，按本skill规定的文件结构、命名和接口契约生成，保证与项目现有格式一致。适用范围：新建 Model/Schema/Service/Route、批量删除、状态切换、分页过滤等。
 ---
 
 # demo-create：fastApi 项目 CRUD 模块生成规范
@@ -13,7 +13,7 @@ description: 生成或修改增删改查(CRUD)模块时必须使用本skill。�
 |---|---|
 | `models/system/{{name}}.py` | SQLAlchemy 模型（表名 `sys_{{name}}`） |
 | `schemas/{{name}}.py` | Pydantic 请求/响应模型（继承 CamelModel） |
-| `crud/system/{{name}}.py` | 数据库操作层 |
+| `services/system/{{name}}.py` | 服务层（业务与数据库操作） |
 | `api/routes/system/{{name}}.py` | 路由层 |
 | `core/router.py` + `database/init.sql` | 注册路由 + 菜单权限种子数据 |
 
@@ -29,7 +29,7 @@ description: 生成或修改增删改查(CRUD)模块时必须使用本skill。�
 3. **分页返回**：`{"items": ..., "page": page, "pageSize": page_size, "total": total, "totalPages": ...}`。
 4. **JSON 字段驼峰**：请求/响应模型必须继承 `schemas/base.py` 的 `CamelModel`（alias_generator=to_camel），时间字段输出用 `models/base.py` 的 `format_datetime()` 转 `"YYYY-MM-DD HH:mm:ss"` 字符串。
 5. **零值合法**：`state=0/status=0` 是有效值。过滤/更新判断用 `is not None`，禁止用 `if data.state:`（0 会被当成"未传"）。
-6. **更新语义**：非空 rule 类字段 → 复用/新建；显式传 null/空 → 解除关联或清空（参照 `crud/system/menu.py` 的 update_menu 注释块）。
+6. **更新语义**：非空 rule 类字段 → 复用/新建；显式传 null/空 → 解除关联或清空（参照 `services/system/menu.py` 的 update_menu 注释块）。
 7. **接口面**（依赖 `get_current_user` 鉴权）：
    `GET /page`、`GET /detail`、`POST /create`、`PUT /update/{id}`、`DELETE /{id}`、`POST /batchDelete`、（有状态时）`PUT /changeState`、`GET /list`。
 8. **过滤参数**：模糊匹配 `LIKE %xx%`，参数名与前端搜索框一致；total 跟随过滤。
@@ -88,9 +88,9 @@ class Change{{Name}}StateRequest(CamelModel):
     state: int  # 0 隐藏 / 1 显示，零值合法不加约束
 ```
 
-### 3. `crud/system/{{name}}.py`
+### 3. `services/system/{{name}}.py`
 
-参照 `crud/system/permission.py` / `menu.py`：函数签名第一个参数是 `db: AsyncSession`；分页先 `count` 再 `offset/limit`；过滤条件同时作用于 count 与 select；软删用 `update().values(is_deleted=1, deleted_at=datetime.now())`。
+参照 `services/system/permission.py` / `menu.py`：函数签名第一个参数是 `db: AsyncSession`；分页先 `count` 再 `offset/limit`；过滤条件同时作用于 count 与 select；软删用 `update().values(is_deleted=1, deleted_at=datetime.now())`。
 
 ### 4. `api/routes/system/{{name}}.py`
 

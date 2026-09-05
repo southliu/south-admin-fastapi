@@ -25,7 +25,7 @@ database/init.sql    种子数据（菜单/角色/管理员）
 
 api/routes/system/   路由层：薄处理器，Depends(get_db) + Depends(get_current_user)
                     user.py role.py menu.py permission.py log.py
-crud/system/         业务与数据库操作层（逻辑都写在这里）
+services/system/     业务与数据库操作层（逻辑都写在这里）
                     user.py role.py menu.py permission.py log.py
 models/system/       SQLAlchemy 模型，表名 sys_*
                     user.py role.py menu.py permission.py log.py
@@ -37,14 +37,14 @@ middleware/          auth（JWT 认证）、exceptions（统一错误格式）�
 utils/security.py    bcrypt 密码加密/校验、JWT 签发/解析
 ```
 
-五个业务模块（user/role/menu/permission/log）在 api/routes/system、crud/system、models/system、schemas 各有一份同名文件，新增模块照此对齐。
+五个业务模块（user/role/menu/permission/log）在 api/routes/system、services/system、models/system、schemas 各有一份同名文件，新增模块照此对齐。
 
-数据流向：route → crud → model，不允许 route 直接写 ORM 查询或 crud 绕过 model 约定。生成或修改 CRUD 模块时用 `.zcode/skills/demo-create` skill（已规定文件结构、命名与接口契约）。
+数据流向：route → services → model，不允许 route 直接写 ORM 查询或 services 绕过 model 约定。生成或修改 CRUD 模块时用 `.zcode/skills/demo-create` skill（已规定文件结构、命名与接口契约）。
 
 ## 关键约定
 
 - **响应格式**：统一 `ResponseModel {code, message, data}`；分页用 `PageData`（items/page/pageSize/total/totalPages）。所有 Pydantic 字段 snake_case，CamelModel 自动别名成 camelCase。
-- **业务异常**：crud 层 `raise ValueError("中文提示")` → 路由层捕获后 `raise HTTPException(status_code=200, detail=str(e))` → 全局处理器转为 HTTP 200 + `{code: 500, message}`。不要在 crud 里直接抛 HTTPException。
+- **业务异常**：services 层 `raise ValueError("中文提示")` → 路由层捕获后 `raise HTTPException(status_code=200, detail=str(e))` → 全局处理器转为 HTTP 200 + `{code: 500, message}`。不要在 services 里直接抛 HTTPException。
 - **认证失败**：HTTP 200 + 响应体 `code: 401`（AuthError），前端按 code 判断。
 - **只读模式**：`config.yaml` 的 `readonly.enabled: 1` 时，除 `/system/user/login` 与 GET/HEAD/OPTIONS 外的请求全部拒绝，返回 HTTP 200 + `code: 500`（ReadOnlyMiddleware）。
 - **PUT 更新语义**：全量替换。nullable 字段"不传/传空（null 或 ''）"一律视为清空（见 83f9c5f、87ced1c）。前端 `filterEmptyStr` 现在会发送空字符串，与该语义配套。

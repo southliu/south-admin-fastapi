@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.menu import (
+from services.system.menu import (
     get_menu_list,
     get_menu_page,
     get_menu_detail,

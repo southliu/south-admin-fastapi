@@ -4,7 +4,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from crud.system.permission import get_permission_by_name
+from services.system.permission import get_permission_by_name
 from models.system.menu import SysMenu
 from models.system.permission import SysPermission
 from models.system.user import user_role
@@ -52,7 +52,7 @@ async def get_menu_by_id(db: AsyncSession, menu_id: int) -> Optional[SysMenu]:
 
 async def get_menu_list(db: AsyncSession, user_id: int) -> List[dict]:
     """获取用户菜单列表"""
-    from crud.system.user import get_user_by_id
+    from services.system.user import get_user_by_id
 
     user = await get_user_by_id(db, user_id)
     if not user:

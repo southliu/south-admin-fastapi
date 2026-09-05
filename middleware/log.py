@@ -6,10 +6,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import AsyncSessionLocal
-from crud.system.log import create_log
+from services.system.log import create_log
 from schemas.log import CreateLogRequest
 from utils.security import decode_access_token
-from crud.system.user import get_user_by_id
+from services.system.user import get_user_by_id
 
 
 class LogMiddleware(BaseHTTPMiddleware):

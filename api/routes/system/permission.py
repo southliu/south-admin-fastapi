@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
-from crud.system.permission import (
+from services.system.permission import (
     get_permission_page,
     get_permission_list,
     get_permission_by_id,
