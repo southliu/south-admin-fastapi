@@ -1,3 +1,6 @@
+-- 声明本文件编码为 utf8mb4，防止客户端默认字符集（如 docker exec 非交互时的 latin1）导致中文双重编码
+SET NAMES utf8mb4;
+
 -- 开始事务
 START TRANSACTION;
 

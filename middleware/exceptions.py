@@ -28,8 +28,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 async def generic_exception_handler(request: Request, exc: Exception):
-    """未捕获异常处理：响应体改为 {code, message} 格式"""
+    """未捕获异常处理：响应体改为 {code, message} 格式
+
+    原始异常文本不返回给前端；traceback 仍会由 uvicorn 记录
+    （Starlette 的 500 兜底处理器在发送响应后会重新抛出异常）。
+    """
     return JSONResponse(
         status_code=500,
-        content={"code": 500, "message": str(exc) or "服务器内部错误"},
+        content={"code": 500, "message": "网络异常，请稍后重试"},
     )
