@@ -8,10 +8,28 @@ South Admin 后台管理系统的 FastAPI 后端：FastAPI + SQLAlchemy 2 (async
 ```bash
 uv sync                                      # 安装依赖
 uv run uvicorn main:app --reload --port 8000 # 启动开发服务（main.py 无 __main__ 块，python main.py 跑不起来）
+uv run ruff format .                         # 格式化 Python 代码
+uv run ruff check .                          # 检查 Python 代码
 ```
 
 - 接口文档：http://localhost:8000/docs
-- 无测试套件、无 linter 配置；`test_main.http` 是手工调试文件。验证改动需实际启动服务或写临时脚本调用。
+- 无测试套件；`test_main.http` 是手工调试文件。验证改动需实际启动服务或写临时脚本调用。
+
+## Python 代码规范（必须遵守）
+
+- 以 PEP 8 为基础，由根目录 `.editorconfig` 和 `pyproject.toml` 中的 Ruff 配置统一约束。
+- 使用 4 个空格缩进，禁止 Tab 及 Tab/空格混用；代码每行不超过 79 字符，独立注释和 docstring 每行不超过 72 字符。
+- 模块顶层函数和类之间空两行，类内方法之间空一行；函数内部仅在不同逻辑块之间使用单个空行。
+- import 按标准库、第三方库、项目模块分组并各空一行；使用绝对导入，禁止 `from xxx import *`，禁止保留无用 import。
+- 变量、函数和模块使用 `snake_case`，类使用 `PascalCase`，常量使用 `UPPER_SNAKE_CASE`，非公开名称以单下划线开头。
+- 运算符两侧保留空格，括号内部不加多余空格，不保留行尾空格；字符串统一使用双引号，多行集合和调用保留尾随逗号。
+- `#` 后保留一个空格；注释只解释 non-obvious reason，不复述代码，不保留被注释掉的旧代码。
+- 公共函数、services 方法和复杂数据结构提供完整类型注解；使用 Python 3.14 语法（如 `list[str]`、`X | None`），避免旧式 `List`、`Optional`。
+- 禁止可变默认参数、裸 `except`、静默吞异常和使用 `print()` 记录运行日志；使用具体异常和项目日志设施，不记录密码、Token、密钥或完整敏感信息。
+- 条件判断使用 `is None`、`is not None` 和对象真值，不写 `== None`、`== True` 或 `len(items) == 0`。
+- 函数保持单一职责并优先提前返回，避免过深嵌套；参数过多时使用已有或新增的 Pydantic schema 封装。
+- `async def` 中不得调用阻塞式网络、数据库或文件 I/O；所有异步调用必须正确 `await`，数据库会话继续通过依赖注入获取。
+- 所有新增或修改的 Python 文件在交付前必须执行 `uv run ruff format <files>` 和 `uv run ruff check <files>`。只修复本次涉及文件，禁止借规范接入批量重写无关历史代码。
 
 ## 架构分层（按目录分类）
 
@@ -68,3 +86,4 @@ utils/security.py    bcrypt 密码加密/校验、JWT 签发/解析
 5. 不允许引入与当前项目技术栈和代码风格冲突的实现方式。
 6. 注释只写 non-obvious reason，禁止保留 intermediate attempts；PR/提交描述只写最终行为，diff 里看不出来的取舍与从未合入的状态一律不提。
 7. 验证用的临时数据（测试用户、日志）和前后端 dev 端口在收尾时必须清理/关闭；临时改动（如前端 `.env.development` 代理切换）必须还原。
+8. AI 生成或修改代码时必须遵守本文件的 Python 代码规范；不得通过扩大 `noqa`、全局 ignore 或跳过 Ruff 来掩盖本次引入的问题。
