@@ -9,6 +9,7 @@ def to_camel(string: str) -> str:
 
 class CamelModel(BaseModel):
     """统一 camelCase 别名的基类"""
+
     model_config = {
         "alias_generator": to_camel,
         "populate_by_name": True,

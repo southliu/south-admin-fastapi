@@ -1,11 +1,12 @@
-from typing import Callable
+from collections.abc import Callable
+
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import READONLY_ENABLED
 
-# 只读模式下仍放行的方法：GET 查询；HEAD/OPTIONS 是浏览器语义请求与 CORS 预检，
+# HEAD/OPTIONS 是浏览器语义请求与 CORS 预检，
 # 拦掉 OPTIONS 会导致前端连 GET 都发不出去
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -15,15 +16,19 @@ ALLOWED_PATHS = {"/system/user/login"}
 
 class ReadOnlyMiddleware(BaseHTTPMiddleware):
     """只读模式中间件：config.yaml readonly.enabled 为 1 时，
-    除登录外的非 GET 请求一律拒绝，返回 {code: 403}（HTTP 恒为 200，前端约定）。
+    除登录外的非 GET 请求一律拒绝。HTTP 恒为 200，
+    由响应体 code 表达业务错误。
     """
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable
+    ) -> Response:
         if (
             READONLY_ENABLED == 1
             and request.method.upper() not in ALLOWED_METHODS
             and request.url.path not in ALLOWED_PATHS
         ):
+            request.state.operation_error = "ReadOnlyError"
             return JSONResponse(
                 status_code=200,
                 content={

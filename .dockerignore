@@ -32,6 +32,10 @@ build/
 
 # 测试与示例
 test_main.http
+tests/
+.zcode/
+AGENTS.md
+README.md
 
 # Docker 构建上下文
 Dockerfile

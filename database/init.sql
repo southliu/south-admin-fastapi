@@ -18,12 +18,6 @@ DELETE FROM `sys_user`;
 -- 重新启用外键约束检查
 SET FOREIGN_KEY_CHECKS = 1;
 
--- 插入用户表数据（密码已加密，明文为 admin123）
-INSERT INTO `sys_user` (username, password, name, email, status, is_deleted, create_at, update_at)
-VALUES
-    ('admin', '$2b$10$07h7npcIysHutrLYCY3yWOhEqtGTCR88pDp66ZztkAdG7RJT/4ZDO', '超级管理员', 'admin@example.com', 1, 0, NOW(), NOW()),
-    ('user1', '$2b$10$07h7npcIysHutrLYCY3yWOhEqtGTCR88pDp66ZztkAdG7RJT/4ZDO', '普通用户', 'user1@example.com', 1, 0, NOW(), NOW());
-
 -- 插入角色表数据
 INSERT INTO `sys_role` (name, description, create_at, update_at, is_deleted)
 VALUES
@@ -69,12 +63,6 @@ VALUES
     ('/authority/log', '日志管理', NOW(), NOW(), 0),
     ('/authority/log/index', '日志列表', NOW(), NOW(), 0),
     ('/authority/log/delete', '删除日志', NOW(), NOW(), 0);
-
--- 关联用户与角色
-INSERT INTO `sys_user_role` (user_id, role_id)
-VALUES
-    ((SELECT id FROM `sys_user` WHERE username='admin'), (SELECT id FROM `sys_role` WHERE name='admin')),
-    ((SELECT id FROM `sys_user` WHERE username='user1'), (SELECT id FROM `sys_role` WHERE name='user'));
 
 -- 禁用外键约束检查
 SET FOREIGN_KEY_CHECKS = 0;

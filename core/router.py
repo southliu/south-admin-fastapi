@@ -1,6 +1,7 @@
 from fastapi import APIRouter
+
 from api.routes import dashboard
-from api.routes.system import user, role, menu, permission, log, article
+from api.routes.system import article, log, menu, permission, role, user
 
 api_router = APIRouter()
 

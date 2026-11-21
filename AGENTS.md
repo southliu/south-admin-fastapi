@@ -10,10 +10,12 @@ uv sync                                      # 安装依赖
 uv run uvicorn main:app --reload --port 8000 # 启动开发服务（main.py 无 __main__ 块，python main.py 跑不起来）
 uv run ruff format .                         # 格式化 Python 代码
 uv run ruff check .                          # 检查 Python 代码
+uv run pytest -q                             # 运行自动化测试
+uv run alembic upgrade head                  # 将数据库升级到最新结构
 ```
 
 - 接口文档：http://localhost:8000/docs
-- 无测试套件；`test_main.http` 是手工调试文件。验证改动需实际启动服务或写临时脚本调用。
+- 自动化测试位于 `tests/`；`test_main.http` 仍可用于手工调试。涉及数据库或生命周期的改动还需实际启动服务或执行隔离脚本验证。
 
 ## Python 代码规范（必须遵守）
 
@@ -34,12 +36,14 @@ uv run ruff check .                          # 检查 Python 代码
 ## 架构分层（按目录分类）
 
 ```
-main.py              入口：lifespan 启动时建表；注册中间件（log/readonly）与全局异常处理器
+main.py              入口：lifespan 清理过期日志、关闭引擎；注册中间件与全局异常处理器
 core/router.py       路由注册（新增模块需在此挂载；system 各模块挂在 /system 前缀下）
-core/database.py     create_tables()：同步引擎建表，并 import 全部模型
-config/settings.py   读 config.yaml：JWT 配置、readonly.enabled（READONLY_ENABLED）
-config/database.py   引擎与会话：async_engine / AsyncSessionLocal / get_db（同步引擎仅用于建表）
-database/init.sql    种子数据（菜单/角色/管理员）
+core/database.py     集中 import 全部模型，供 Alembic 和独立脚本加载 mapper
+config/settings.py   Pydantic Settings：读取 config.yaml，并允许环境变量覆盖
+config/database.py   引擎与会话：async_engine / AsyncSessionLocal / get_db
+migrations/          Alembic 数据库迁移；应用启动时不自动建表
+database/init.sql    种子数据（菜单/角色/权限，不包含管理员密码）
+scripts/create_admin.py  通过 ADMIN_PASSWORD 安全创建首个管理员
 
 api/routes/system/   路由层：薄处理器，Depends(get_db) + Depends(get_current_user)
                     user.py role.py menu.py permission.py log.py
@@ -75,12 +79,12 @@ utils/security.py    bcrypt 密码加密/校验、JWT 签发/解析
 - `config.yaml` 不入库（含密钥），只有 `config.yaml.example`；不要提交或打印其内容。
 - 临时脚本直接操作数据库：用 `config.database.AsyncSessionLocal()`，且必须先 import 全部模型模块（user/role/menu/permission），否则 mapper 报 `KeyError: 'SysRole'`。
 - Windows 下 aiomysql 退出时刷 "Event loop is closed" 噪音会淹没 stdout，脚本输出用 grep 过滤标记。
-- 启动时 `core/database.py` 的 `create_tables()` 会自动建表；表结构改动对已有数据不生效，需要手工迁移。
+- 应用启动不会自动建表；修改模型必须生成并检查 Alembic 迁移，部署前执行 `uv run alembic upgrade head`。
 
 ## 工作规则（必须遵守）
 
 1. 不允许跳过项目上下文直接改代码；先读相关模块再动手。
-2. 不允许没有验证就声称完成；改动必须实际启动服务/脚本验证后才能报告完成。
+2. 不允许没有验证就声称完成；至少运行相关 pytest、Ruff，并对数据库或生命周期改动实际启动服务或执行隔离脚本验证。
 3. 不允许为了完成局部需求大范围重构无关模块。
 4. 不允许恢复或覆盖用户已有的未说明改动（改动前先 `git status`/`git diff` 确认工作区）。
 5. 不允许引入与当前项目技术栈和代码风格冲突的实现方式。

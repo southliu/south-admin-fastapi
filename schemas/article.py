@@ -1,17 +1,20 @@
-from typing import Optional
+from typing import Any
+
+from pydantic import Field
 
 from schemas.base import CamelModel
+from schemas.fields import TextContent
 
 
 class CreateArticleRequest(CamelModel):
-    title: str
-    author: Optional[str] = None
-    content: Optional[str] = None
-    demo: Optional[dict] = None
+    title: str = Field(min_length=1, max_length=200)
+    author: str | None = Field(default=None, max_length=100)
+    content: TextContent | None = None
+    demo: dict[str, Any] | None = None
 
 
 class UpdateArticleRequest(CamelModel):
-    title: str
-    author: Optional[str] = None
-    content: Optional[str] = None
-    demo: Optional[dict] = None
+    title: str = Field(min_length=1, max_length=200)
+    author: str | None = Field(default=None, max_length=100)
+    content: TextContent | None = None
+    demo: dict[str, Any] | None = None

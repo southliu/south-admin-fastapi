@@ -4,8 +4,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+):
     """HTTP 异常处理：响应体改为 {code, message} 格式"""
+    request.state.operation_error = type(exc).__name__
     # 业务异常（status_code=200）统一返回 code=500
     code = exc.status_code if exc.status_code >= 400 else 500
     return JSONResponse(
@@ -15,10 +18,16 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
     """参数校验异常处理：响应体改为 {code, message} 格式"""
+    request.state.operation_error = type(exc).__name__
     message = "; ".join(
-        f"{'.'.join(str(loc) for loc in err.get('loc', []))}: {err.get('msg', '')}"
+        (
+            f"{'.'.join(str(loc) for loc in err.get('loc', []))}: "
+            f"{err.get('msg', '')}"
+        )
         for err in exc.errors()
     )
     return JSONResponse(
@@ -33,6 +42,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     原始异常文本不返回给前端；traceback 仍会由 uvicorn 记录
     （Starlette 的 500 兜底处理器在发送响应后会重新抛出异常）。
     """
+    request.state.operation_error = type(exc).__name__
     return JSONResponse(
         status_code=500,
         content={"code": 500, "message": "网络异常，请稍后重试"},

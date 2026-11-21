@@ -1,57 +1,62 @@
-from typing import Optional, List
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import EmailStr, Field, PositiveInt
 
 from schemas.base import CamelModel
+from schemas.fields import Password
 
 
 class LoginRequest(CamelModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=100)
+    password: Password
 
 
 class LoginResponse(CamelModel):
     token: str
-    user: "UserInfo"
-    roles: List[int]
-    permissions: List[str]
+    user: UserInfo
+    roles: list[int]
+    permissions: list[str]
 
 
 class UserInfo(CamelModel):
     id: int
     username: str
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    name: str | None = None
+    phone: str | None = None
+    email: EmailStr | None = None
     status: int
-    roles: List[int] = []
+    roles: list[int] = Field(default_factory=list)
 
 
 class CreateUserRequest(CamelModel):
-    username: str
-    password: str
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    status: int = 1
-    role_ids: List[int] = []
+    username: str = Field(min_length=1, max_length=100)
+    password: Password
+    name: str | None = Field(default=None, max_length=100)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=20)
+    status: Literal[0, 1] = 1
+    role_ids: list[PositiveInt] = Field(default_factory=list, max_length=100)
 
 
 class UpdateUserRequest(CamelModel):
-    username: str
-    password: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    status: Optional[int] = None
-    role_ids: Optional[List[int]] = None
+    username: str = Field(min_length=1, max_length=100)
+    password: Password | None = None
+    name: str | None = Field(default=None, max_length=100)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=20)
+    status: Literal[0, 1]
+    role_ids: list[PositiveInt] = Field(max_length=100)
 
 
 class UpdatePasswordRequest(CamelModel):
-    old_password: str
-    new_password: str
-    confirm_password: str
+    old_password: Password
+    new_password: Password
+    confirm_password: Password
 
 
 class RefreshPermissionsResponse(CamelModel):
     user: UserInfo
-    permissions: List[str]
-    roles: List[int]
+    permissions: list[str]
+    roles: list[int]

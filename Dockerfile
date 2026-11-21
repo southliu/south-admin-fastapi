@@ -1,21 +1,27 @@
-FROM python:3.14
+FROM python:3.14-slim-trixie
 
-# 安装uv依赖管理器
-RUN pip install uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /bin/
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ENVIRONMENT=production \
+    UV_FROZEN=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_DEV=1
 
 WORKDIR /app
 
-# 先拷贝依赖锁定文件，利用Docker缓存
 COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# 安装生产依赖
-RUN uv sync --frozen --no-dev
+RUN useradd --create-home --uid 10001 app
+COPY --chown=app:app . .
+USER app
 
-# 拷贝全部项目源码
-COPY . .
-
-# 暴露端口
 EXPOSE 9000
 
-# 启动服务
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=2)"]
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]

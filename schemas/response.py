@@ -1,16 +1,16 @@
-from typing import Any, List, Optional
+from pydantic import Field
 
 from schemas.base import CamelModel
 
 
-class ResponseModel(CamelModel):
+class ResponseModel[T](CamelModel):
     code: int = 200
     message: str = "success"
-    data: Any = None
+    data: T | None = None
 
 
-class PageData(CamelModel):
-    items: List[Any] = []
+class PageData[T](CamelModel):
+    items: list[T] = Field(default_factory=list)
     page: int = 1
     page_size: int = 10
     total: int = 0
