@@ -166,17 +166,20 @@ async def get_role_list_handler(
 
 @router.get("/authorize", response_model=ResponseModel)
 async def get_role_authorize_handler(
-    role_id: int = Query(alias="roleId"),
+    role_ids: str = Query(alias="roleId"),
     db: AsyncSession = Depends(get_db, scope="function"),
     current_user: SysUser = Depends(
         require_permission(
-            "/authority/role/view", "/authority/role", "/authority/role/update"
+            "/authority/role/view",
+            "/authority/role",
+            "/authority/role/update",
+            "/authority/role/create",
         )
     ),
 ) -> ResponseModel:
     """获取角色授权信息"""
     try:
-        data = await get_role_authorize(db, role_id)
+        data = await get_role_authorize(db, role_ids, current_user.id)
         return ResponseModel(code=200, message="获取成功", data=data)
     except ValueError as e:
         raise HTTPException(status_code=200, detail=str(e)) from e

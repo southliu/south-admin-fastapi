@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload, selectinload
 
@@ -10,8 +10,8 @@ from models.system.menu import SysMenu
 from models.system.permission import SysPermission
 from models.system.role import SysRole, role_menu
 from models.system.user import SysUser, user_role
-from schemas.user import CreateUserRequest, UpdateUserRequest
-from services.system.access import validate_user_grant
+from schemas.user import CreateUserRequest, UpdateUserRequest, UserPageQuery
+from services.system.access import is_admin, validate_user_grant
 from utils.security import hash_password, verify_password
 
 
@@ -48,16 +48,19 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> SysUser | None:
 
 
 async def get_user_page(
-    db: AsyncSession,
-    page: int = 1,
-    page_size: int = 10,
-    username: str | None = None,
+    db: AsyncSession, params: UserPageQuery
 ) -> dict[str, Any]:
     """获取用户分页列表"""
+    page, page_size = params.page, params.page_size
     query = select(SysUser).where(SysUser.is_deleted == 0)
 
-    if username:
-        query = query.where(SysUser.username.like(f"%{username}%"))
+    if params.username:
+        query = query.where(SysUser.username.like(f"%{params.username}%"))
+
+    if params.email:
+        query = query.where(SysUser.email.like(f"%{params.email}%"))
+    if params.phone:
+        query = query.where(SysUser.phone.like(f"%{params.phone}%"))
 
     # 查询总数
     count_query = select(func.count()).select_from(query.subquery())
@@ -268,3 +271,31 @@ async def get_user_access(
         )
     )
     return any(role.name == "admin" for role in role_rows), set(permissions)
+
+
+async def batch_delete_user(
+    db: AsyncSession, user_ids: list[int], actor_id: int
+) -> None:
+    if not user_ids:
+        raise ValueError("请选择要删除的用户")
+    if not await is_admin(db, actor_id):
+        admin_id = await db.scalar(
+            select(user_role.c.user_id)
+            .join(SysRole, user_role.c.role_id == SysRole.id)
+            .join(SysUser, SysUser.id == user_role.c.user_id)
+            .where(
+                user_role.c.user_id.in_(user_ids),
+                SysRole.name == "admin",
+                SysRole.is_deleted == 0,
+                SysUser.is_deleted == 0,
+            )
+            .limit(1)
+        )
+        if admin_id is not None:
+            raise ValueError("不能删除管理员账号")
+    await db.execute(
+        update(SysUser)
+        .where(SysUser.id.in_(user_ids), SysUser.is_deleted == 0)
+        .values(is_deleted=1, deleted_at=datetime.now())
+    )
+    await db.flush()

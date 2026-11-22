@@ -10,8 +10,9 @@ from sqlalchemy.orm import raiseload, selectinload
 from models.base import format_datetime
 from models.system.menu import SysMenu
 from models.system.role import SysRole, role_menu
+from models.system.user import user_role
 from schemas.role import CreateRoleRequest, UpdateRoleRequest
-from services.system.access import validate_role_grant
+from services.system.access import is_admin, validate_role_grant
 
 
 async def get_role_by_id(db: AsyncSession, role_id: int) -> SysRole | None:
@@ -57,10 +58,7 @@ async def get_role_page(
     # 分页查询
     offset = (page - 1) * page_size
     query = (
-        query.options(
-            selectinload(SysRole.menus.and_(SysMenu.is_deleted == 0))
-        )
-        .offset(offset)
+        query.offset(offset)
         .limit(page_size)
         .order_by(SysRole.create_at.desc())
     )
@@ -184,30 +182,55 @@ async def delete_role(db: AsyncSession, role_id: int, actor_id: int) -> None:
     await db.flush()
 
 
-async def get_role_authorize(db: AsyncSession, role_id: int) -> dict[str, Any]:
-    """获取角色授权信息"""
-    role = await get_role_by_id(db, role_id)
-    if not role:
-        raise ValueError("角色不存在")
-
-    role_menu_ids = {menu.id for menu in role.menus}
-    default_checked_keys = [str(mid) for mid in role_menu_ids]
-
-    # 查询所有菜单（用于构建完整树形结构）
-    result = await db.execute(
-        select(SysMenu)
-        .options(raiseload("*"))
-        .where(and_(SysMenu.is_deleted == 0))
-        .order_by(SysMenu.order)
+async def get_role_authorize(
+    db: AsyncSession, role_ids: str, actor_id: int
+) -> dict[str, Any]:
+    """按前端传入的当前用户角色集合构建可授权菜单树。"""
+    ids = _parse_role_ids(role_ids)
+    admin = await is_admin(db, actor_id)
+    query = select(SysRole.id).where(
+        SysRole.id.in_(ids), SysRole.is_deleted == 0
     )
-    all_menus = result.scalars().all()
-
-    tree_data = _build_authorize_tree(all_menus, None, role_menu_ids)
-
+    if not admin:
+        query = query.join(user_role).where(user_role.c.user_id == actor_id)
+    available_ids = set(await db.scalars(query))
+    if available_ids != set(ids):
+        raise ValueError("角色不存在或没有访问权限")
+    granted_ids = set(
+        await db.scalars(
+            select(role_menu.c.menu_id)
+            .join(SysMenu, SysMenu.id == role_menu.c.menu_id)
+            .where(role_menu.c.role_id.in_(ids), SysMenu.is_deleted == 0)
+        )
+    )
+    menus = list(
+        await db.scalars(
+            select(SysMenu)
+            .options(raiseload("*"))
+            .where(SysMenu.is_deleted == 0)
+            .order_by(SysMenu.order, SysMenu.id)
+        )
+    )
+    visible_ids = {menu.id for menu in menus} if admin else granted_ids
     return {
-        "defaultCheckedKeys": default_checked_keys,
-        "treeData": tree_data,
+        "defaultCheckedKeys": [str(mid) for mid in sorted(granted_ids)],
+        "treeData": _build_authorize_tree(menus, None, visible_ids),
     }
+
+
+def _parse_role_ids(value: str) -> list[int]:
+    parts = value.split(",")
+    if not parts or any(
+        not part.strip().isascii()
+        or not part.strip().isdecimal()
+        or len(part.strip()) > 10
+        for part in parts
+    ):
+        raise ValueError("角色 ID 格式无效")
+    ids = list(dict.fromkeys(int(part.strip()) for part in parts))
+    if any(not 0 < role_id <= 2**31 - 1 for role_id in ids):
+        raise ValueError("角色 ID 格式无效")
+    return ids
 
 
 def _build_authorize_tree(

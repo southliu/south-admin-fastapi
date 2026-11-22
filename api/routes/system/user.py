@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,14 +12,17 @@ from middleware.auth import (
 )
 from models.base import format_datetime
 from models.system.user import SysUser
+from schemas.menu import BatchDeleteRequest
 from schemas.response import ResponseModel
 from schemas.user import (
     CreateUserRequest,
     LoginRequest,
     UpdatePasswordRequest,
     UpdateUserRequest,
+    UserPageQuery,
 )
 from services.system.user import (
+    batch_delete_user,
     create_user,
     delete_user,
     get_user_by_id,
@@ -117,16 +122,14 @@ async def refresh_permissions(
 
 @router.get("/page", response_model=ResponseModel)
 async def get_user_page_list(
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=10, alias="pageSize", ge=1, le=200),
-    username: str | None = None,
+    query: Annotated[UserPageQuery, Query()],
     db: AsyncSession = Depends(get_db, scope="function"),
     current_user: SysUser = Depends(
         require_permission("/authority/user/index", "/authority/user")
     ),
 ) -> ResponseModel:
     """获取用户分页列表"""
-    result = await get_user_page(db, page, page_size, username)
+    result = await get_user_page(db, query)
     return ResponseModel(code=200, message="获取成功", data=result)
 
 
@@ -280,3 +283,18 @@ async def update_password_handler(
         return ResponseModel(code=200, message="更新成功")
     except ValueError as e:
         raise HTTPException(status_code=200, detail=str(e)) from e
+
+
+@router.post("/batchDelete", response_model=ResponseModel)
+async def batch_delete_user_handler(
+    req: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    current_user: SysUser = Depends(
+        require_permission("/authority/user/delete")
+    ),
+) -> ResponseModel:
+    try:
+        await batch_delete_user(db, req.ids, current_user.id)
+        return ResponseModel(code=200, message="批量删除成功")
+    except ValueError as exc:
+        raise HTTPException(status_code=200, detail=str(exc)) from exc
