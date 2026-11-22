@@ -1,26 +1,39 @@
-from typing import Optional, List
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import raiseload
 
-from models.system.permission import SysPermission
 from models.base import format_datetime
+from models.system.permission import SysPermission
 from schemas.permission import CreatePermissionRequest, UpdatePermissionRequest
 
 
-async def get_permission_by_id(db: AsyncSession, permission_id: int) -> Optional[SysPermission]:
+async def get_permission_by_id(
+    db: AsyncSession, permission_id: int
+) -> SysPermission | None:
     """根据ID查询权限"""
     result = await db.execute(
         select(SysPermission)
-        .where(and_(SysPermission.id == permission_id, SysPermission.is_deleted == 0))
+        .options(raiseload("*"))
+        .where(
+            and_(
+                SysPermission.id == permission_id,
+                SysPermission.is_deleted == 0,
+            )
+        )
     )
     return result.scalar_one_or_none()
 
 
-async def get_permission_by_name(db: AsyncSession, name: str) -> Optional[SysPermission]:
+async def get_permission_by_name(
+    db: AsyncSession, name: str
+) -> SysPermission | None:
     """根据名称查询权限"""
     result = await db.execute(
         select(SysPermission)
+        .options(raiseload("*"))
         .where(and_(SysPermission.name == name, SysPermission.is_deleted == 0))
     )
     return result.scalar_one_or_none()
@@ -30,10 +43,14 @@ async def get_permission_page(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 10,
-    name: Optional[str] = None
-) -> dict:
+    name: str | None = None,
+) -> dict[str, Any]:
     """获取权限分页列表"""
-    query = select(SysPermission).where(SysPermission.is_deleted == 0)
+    query = (
+        select(SysPermission)
+        .options(raiseload("*"))
+        .where(SysPermission.is_deleted == 0)
+    )
 
     if name:
         query = query.where(SysPermission.name.like(f"%{name}%"))
@@ -45,20 +62,26 @@ async def get_permission_page(
 
     # 分页查询
     offset = (page - 1) * page_size
-    query = query.offset(offset).limit(page_size).order_by(SysPermission.create_at.desc())
+    query = (
+        query.offset(offset)
+        .limit(page_size)
+        .order_by(SysPermission.create_at.desc())
+    )
     result = await db.execute(query)
     permissions = result.scalars().all()
 
     # 构建返回数据
     items = []
     for permission in permissions:
-        items.append({
-            "id": permission.id,
-            "name": permission.name,
-            "description": permission.description,
-            "createdAt": format_datetime(permission.create_at),
-            "updatedAt": format_datetime(permission.update_at),
-        })
+        items.append(
+            {
+                "id": permission.id,
+                "name": permission.name,
+                "description": permission.description,
+                "createdAt": format_datetime(permission.create_at),
+                "updatedAt": format_datetime(permission.update_at),
+            }
+        )
 
     total_pages = total // page_size
     if total % page_size > 0:
@@ -73,15 +96,19 @@ async def get_permission_page(
     }
 
 
-async def get_permission_list(db: AsyncSession) -> List[SysPermission]:
+async def get_permission_list(db: AsyncSession) -> list[SysPermission]:
     """获取权限列表"""
     result = await db.execute(
-        select(SysPermission).where(SysPermission.is_deleted == 0)
+        select(SysPermission)
+        .options(raiseload("*"))
+        .where(SysPermission.is_deleted == 0)
     )
     return result.scalars().all()
 
 
-async def create_permission(db: AsyncSession, data: CreatePermissionRequest) -> SysPermission:
+async def create_permission(
+    db: AsyncSession, data: CreatePermissionRequest
+) -> SysPermission:
     """创建权限"""
     # 检查权限名是否已存在
     existing = await get_permission_by_name(db, data.name)
@@ -94,12 +121,14 @@ async def create_permission(db: AsyncSession, data: CreatePermissionRequest) -> 
     )
 
     db.add(permission)
-    await db.commit()
+    await db.flush()
     await db.refresh(permission)
     return permission
 
 
-async def update_permission(db: AsyncSession, permission_id: int, data: UpdatePermissionRequest) -> SysPermission:
+async def update_permission(
+    db: AsyncSession, permission_id: int, data: UpdatePermissionRequest
+) -> SysPermission:
     """更新权限"""
     permission = await get_permission_by_id(db, permission_id)
     if not permission:
@@ -112,10 +141,9 @@ async def update_permission(db: AsyncSession, permission_id: int, data: UpdatePe
             raise ValueError("权限名已存在")
 
     permission.name = data.name
-    if data.description is not None:
-        permission.description = data.description
+    permission.description = data.description or None
 
-    await db.commit()
+    await db.flush()
     await db.refresh(permission)
     return permission
 
@@ -126,7 +154,6 @@ async def delete_permission(db: AsyncSession, permission_id: int) -> None:
     if not permission:
         raise ValueError("权限不存在")
 
-    from datetime import datetime
     permission.is_deleted = 1
     permission.deleted_at = datetime.now()
-    await db.commit()
+    await db.flush()

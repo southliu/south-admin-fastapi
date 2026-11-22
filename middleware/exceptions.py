@@ -4,8 +4,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """HTTP 异常处理：响应体改为 {code, message} 格式"""
+    request.state.audit_code = (
+        exc.status_code if exc.status_code >= 400 else 500
+    )
     # 业务异常（status_code=200）统一返回 code=500
     code = exc.status_code if exc.status_code >= 400 else 500
     return JSONResponse(
@@ -15,10 +20,14 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """参数校验异常处理：响应体改为 {code, message} 格式"""
+    request.state.audit_code = 422
     message = "; ".join(
-        f"{'.'.join(str(loc) for loc in err.get('loc', []))}: {err.get('msg', '')}"
+        f"{'.'.join(str(loc) for loc in err.get('loc', []))}: "
+        f"{err.get('msg', '')}"
         for err in exc.errors()
     )
     return JSONResponse(
@@ -27,7 +36,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-async def generic_exception_handler(request: Request, exc: Exception):
+async def generic_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
     """未捕获异常处理：响应体改为 {code, message} 格式
 
     原始异常文本不返回给前端；traceback 仍会由 uvicorn 记录

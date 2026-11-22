@@ -5,20 +5,22 @@ from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 
 from models.base import format_datetime
 from models.system.menu import SysMenu
 from models.system.role import SysRole, role_menu
 from schemas.role import CreateRoleRequest, UpdateRoleRequest
+from services.system.access import validate_role_grant
 
 
 async def get_role_by_id(db: AsyncSession, role_id: int) -> SysRole | None:
     """根据ID查询角色"""
     result = await db.execute(
         select(SysRole)
+        .options(raiseload("*"))
         .where(and_(SysRole.id == role_id, SysRole.is_deleted == 0))
-        .options(selectinload(SysRole.menus))
+        .options(selectinload(SysRole.menus.and_(SysMenu.is_deleted == 0)))
     )
     return result.scalar_one_or_none()
 
@@ -26,9 +28,9 @@ async def get_role_by_id(db: AsyncSession, role_id: int) -> SysRole | None:
 async def get_role_by_name(db: AsyncSession, name: str) -> SysRole | None:
     """根据名称查询角色"""
     result = await db.execute(
-        select(SysRole).where(
-            and_(SysRole.name == name, SysRole.is_deleted == 0)
-        )
+        select(SysRole)
+        .options(raiseload("*"))
+        .where(and_(SysRole.name == name, SysRole.is_deleted == 0))
     )
     return result.scalar_one_or_none()
 
@@ -40,7 +42,9 @@ async def get_role_page(
     name: str | None = None,
 ) -> dict[str, Any]:
     """获取角色分页列表"""
-    query = select(SysRole).where(SysRole.is_deleted == 0)
+    query = (
+        select(SysRole).options(raiseload("*")).where(SysRole.is_deleted == 0)
+    )
 
     if name:
         query = query.where(SysRole.name.like(f"%{name}%"))
@@ -53,7 +57,9 @@ async def get_role_page(
     # 分页查询
     offset = (page - 1) * page_size
     query = (
-        query.options(selectinload(SysRole.menus))
+        query.options(
+            selectinload(SysRole.menus.and_(SysMenu.is_deleted == 0))
+        )
         .offset(offset)
         .limit(page_size)
         .order_by(SysRole.create_at.desc())
@@ -89,7 +95,9 @@ async def get_role_page(
 
 async def get_role_list(db: AsyncSession) -> list[SysRole]:
     """获取角色列表"""
-    result = await db.execute(select(SysRole).where(SysRole.is_deleted == 0))
+    result = await db.execute(
+        select(SysRole).options(raiseload("*")).where(SysRole.is_deleted == 0)
+    )
     return result.scalars().all()
 
 
@@ -98,15 +106,18 @@ async def get_roles_by_ids(
 ) -> list[SysRole]:
     """根据ID列表查询角色"""
     result = await db.execute(
-        select(SysRole).where(
-            and_(SysRole.id.in_(role_ids), SysRole.is_deleted == 0)
-        )
+        select(SysRole)
+        .options(raiseload("*"))
+        .where(and_(SysRole.id.in_(role_ids), SysRole.is_deleted == 0))
     )
     return result.scalars().all()
 
 
-async def create_role(db: AsyncSession, data: CreateRoleRequest) -> SysRole:
+async def create_role(
+    db: AsyncSession, data: CreateRoleRequest, actor_id: int
+) -> SysRole:
     """创建角色"""
+    await validate_role_grant(db, actor_id, data.name, data.authorize)
     # 检查角色名是否已存在
     existing = await get_role_by_name(db, data.name)
     if existing:
@@ -125,19 +136,22 @@ async def create_role(db: AsyncSession, data: CreateRoleRequest) -> SysRole:
     if data.authorize:
         await update_role_menus(db, role.id, data.authorize)
 
-    await db.commit()
+    await db.flush()
 
     return role
 
 
 async def update_role(
-    db: AsyncSession, role_id: int, data: UpdateRoleRequest
+    db: AsyncSession, role_id: int, data: UpdateRoleRequest, actor_id: int
 ) -> SysRole:
     """更新角色"""
     role = await get_role_by_id(db, role_id)
     if not role:
         raise ValueError("角色不存在")
 
+    await validate_role_grant(
+        db, actor_id, data.name, data.authorize, role.name
+    )
     # 检查角色名是否已存在
     if data.name != role.name:
         existing = await get_role_by_name(db, data.name)
@@ -145,8 +159,7 @@ async def update_role(
             raise ValueError("角色名已存在")
 
     role.name = data.name
-    if data.description is not None:
-        role.description = data.description
+    role.description = data.description or None
 
     await db.flush()
 
@@ -154,20 +167,21 @@ async def update_role(
     if data.authorize is not None:
         await update_role_menus(db, role_id, data.authorize)
 
-    await db.commit()
+    await db.flush()
 
     return role
 
 
-async def delete_role(db: AsyncSession, role_id: int) -> None:
+async def delete_role(db: AsyncSession, role_id: int, actor_id: int) -> None:
     """删除角色"""
     role = await get_role_by_id(db, role_id)
     if not role:
         raise ValueError("角色不存在")
 
+    await validate_role_grant(db, actor_id, role.name, None)
     role.is_deleted = 1
     role.deleted_at = datetime.now()
-    await db.commit()
+    await db.flush()
 
 
 async def get_role_authorize(db: AsyncSession, role_id: int) -> dict[str, Any]:
@@ -182,6 +196,7 @@ async def get_role_authorize(db: AsyncSession, role_id: int) -> dict[str, Any]:
     # 查询所有菜单（用于构建完整树形结构）
     result = await db.execute(
         select(SysMenu)
+        .options(raiseload("*"))
         .where(and_(SysMenu.is_deleted == 0))
         .order_by(SysMenu.order)
     )
@@ -227,15 +242,16 @@ def _build_authorize_tree(
 
 
 async def save_role_authorize(
-    db: AsyncSession, role_id: int, menu_ids: list[int]
+    db: AsyncSession, role_id: int, menu_ids: list[int], actor_id: int
 ) -> None:
     """保存角色授权"""
     role = await get_role_by_id(db, role_id)
     if not role:
         raise ValueError("角色不存在")
 
+    await validate_role_grant(db, actor_id, role.name, menu_ids)
     await update_role_menus(db, role_id, menu_ids)
-    await db.commit()
+    await db.flush()
 
 
 async def update_role_menus(

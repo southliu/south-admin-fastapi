@@ -4,16 +4,16 @@ version = "0.1.0"
 description = "South Admin FastAPI 后台管理系统"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.137.1",
-    "uvicorn>=0.49.0",
-    "sqlalchemy>=2.0.25",
-    "aiomysql>=0.2.0",
-    "pymysql>=1.1.0",
-    "pydantic>=2.5.3",
-    "pyyaml>=6.0",
-    "python-jose[cryptography]>=3.3.0",
-    "bcrypt>=4.1.2",
-    "greenlet>=3.5.1",
+    "fastapi>=0.165.0",
+    "uvicorn>=0.54.0",
+    "sqlalchemy[asyncio]>=2.1.9",
+    "aiomysql>=0.3.2",
+    "pymysql>=1.2.4",
+    "pydantic>=2.14.4",
+    "pyyaml>=6.0.4",
+    "python-jose[cryptography]>=3.5.0",
+    "bcrypt>=5.0.0",
+    "greenlet>=3.5.6",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -21,8 +21,11 @@ packages = ["."]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.9",
+    "ruff>=0.17.6",
 ]
+
+[tool.uv]
+prerelease = "disallow"
 
 [tool.ruff]
 target-version = "py314"

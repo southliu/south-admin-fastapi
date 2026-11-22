@@ -1,0 +1,15 @@
+services:
+  south-admin-fastapi:
+    image: south-admin-fastapi:v1
+    container_name: south-admin-fastapi
+    restart: always
+    ports:
+      - "9000:9000"
+    volumes:
+      - /home/south-admin-fastApi/config.yaml:/app/config.yaml
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    external: true

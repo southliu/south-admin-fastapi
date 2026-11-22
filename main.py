@@ -1,46 +1,58 @@
+import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from core.router import api_router
+from config.database import async_engine, sync_engine
 from core.database import create_tables
-from middleware.log import LogMiddleware
-from middleware.auth import AuthError, auth_error_handler
-from middleware.readonly import ReadOnlyMiddleware
+from core.router import api_router
+from middleware.auth import (
+    AuthError,
+    PermissionDeniedError,
+    auth_error_handler,
+    permission_error_handler,
+)
 from middleware.exceptions import (
+    generic_exception_handler,
     http_exception_handler,
     validation_exception_handler,
-    generic_exception_handler,
 )
+from middleware.log import LogMiddleware
+from middleware.readonly import ReadOnlyMiddleware
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 启动时创建数据库表
     await create_tables()
-    yield
+    try:
+        yield
+    finally:
+        await async_engine.dispose()
+        await asyncio.to_thread(sync_engine.dispose)
 
 
 app = FastAPI(title="South Admin API", version="0.1.0", lifespan=lifespan)
 
 # 注册认证异常处理器
 app.add_exception_handler(AuthError, auth_error_handler)
+app.add_exception_handler(PermissionDeniedError, permission_error_handler)
 
-# 注册全局异常处理器，去掉默认的 {detail: xxx}，统一为 {code, message} 格式
+# 全局异常统一为 {code, message} 格式。
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
-# 注册日志中间件
-app.add_middleware(LogMiddleware)
-
-# 注册只读模式中间件（readonly.enabled 为 1 时拦截除登录外的非 GET 请求）
+# 日志位于最外层，以便记录只读模式拒绝的请求。
 app.add_middleware(ReadOnlyMiddleware)
+app.add_middleware(LogMiddleware)
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, str]:
     return {"message": "Hello World"}
 
 

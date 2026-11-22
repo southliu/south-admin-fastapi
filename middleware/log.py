@@ -1,105 +1,112 @@
-import time
 import json
-from typing import Callable
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
+from time import perf_counter
+
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.requests import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 from config.database import AsyncSessionLocal
-from services.system.log import create_log
 from schemas.log import CreateLogRequest
-from utils.security import decode_access_token
-from services.system.user import get_user_by_id
+from services.system.log import create_log
+from utils.audit import MAX_AUDIT_BYTES
+
+logger = logging.getLogger(__name__)
 
 
-class LogMiddleware(BaseHTTPMiddleware):
-    """操作日志中间件"""
+class LogMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # 开始时间
-        start_time = time.time()
-
-        # 获取请求信息
-        method = request.method
-        url = str(request.url)
-
-        # 跳过不需要记录的路径
-        skip_paths = ["/docs", "/redoc", "/openapi.json", "/favicon.ico"]
-        if any(path in url for path in skip_paths):
-            return await call_next(request)
-
-        # 获取请求参数
-        params = None
-        try:
-            if method == "GET":
-                params = str(dict(request.query_params)) if request.query_params else None
-            else:
-                body = await request.body()
-                if body:
-                    params = body.decode("utf-8")
-        except Exception:
-            params = None
-
-        # 获取客户端 IP
-        ip = request.client.host if request.client else None
-
-        # 获取 User-Agent
-        user_agent = request.headers.get("user-agent", None)
-
-        # 获取当前用户
-        username = None
-        try:
-            auth_header = request.headers.get("authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-                payload = decode_access_token(token)
-                if payload:
-                    user_id = payload.get("sub")
-                    if user_id:
-                        async with AsyncSessionLocal() as db:
-                            user = await get_user_by_id(db, int(user_id))
-                            if user:
-                                username = user.username
-        except Exception:
-            pass
-
-        # 执行请求
-        response = None
-        status = "success"
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http" or scope["path"] in {
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/favicon.ico",
+        }:
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        started = perf_counter()
+        request_body = bytearray()
+        response_body = bytearray()
+        request_size = response_size = 0
+        status_code = 500
         error = None
 
+        async def receive_request() -> Message:
+            nonlocal request_size
+            message = await receive()
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                request_size += len(body)
+                if request_size <= MAX_AUDIT_BYTES:
+                    request_body.extend(body)
+                else:
+                    request_body.clear()
+            return message
+
+        async def send_response(message: Message) -> None:
+            nonlocal status_code, response_size
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            elif message["type"] == "http.response.body":
+                body = message.get("body", b"")
+                response_size += len(body)
+                if response_size <= MAX_AUDIT_BYTES:
+                    response_body.extend(body)
+                else:
+                    response_body.clear()
+            await send(message)
+
         try:
-            response = await call_next(request)
-            status = "success" if response.status_code < 400 else "error"
-        except Exception as e:
-            status = "error"
-            error = str(e)
+            await self.app(scope, receive_request, send_response)
+        except Exception as exc:
+            error = type(exc).__name__
             raise
         finally:
-            # 计算耗时
-            latency = int((time.time() - start_time) * 1000)
-
-            # 确定日志类型
-            log_type = 1 if status == "success" else 0
-
-            # 记录日志
+            code = getattr(request.state, "audit_code", status_code)
+            if response_body:
+                try:
+                    payload = json.loads(response_body)
+                except ValueError, UnicodeError, RecursionError:
+                    payload = None
+                if isinstance(payload, dict):
+                    code = payload.get("code", code)
+            success = error is None and isinstance(code, int) and code < 400
+            params = (
+                json.dumps(dict(request.query_params))
+                if request.method == "GET"
+                else bytes(request_body)
+            )
+            if request_size > MAX_AUDIT_BYTES:
+                params = json.dumps({"note": "参数过长，已省略"})
             try:
-                async with AsyncSessionLocal() as db:
-                    log_data = CreateLogRequest(
-                        username=username,
-                        ip=ip,
-                        method=method,
-                        url=url,
-                        params=params,
-                        user_agent=user_agent,
-                        status=status,
-                        error=error,
-                        latency=latency,
-                        type=log_type,
+                async with AsyncSessionLocal.begin() as db:
+                    await create_log(
+                        db,
+                        CreateLogRequest(
+                            username=getattr(
+                                request.state, "audit_username", None
+                            ),
+                            ip=request.client.host if request.client else None,
+                            method=request.method,
+                            url=str(request.url),
+                            params=params.decode("utf-8", errors="replace")
+                            if isinstance(params, bytes)
+                            else params,
+                            user_agent=request.headers.get("user-agent", "")[
+                                :500
+                            ],
+                            status="success" if success else "error",
+                            error=error
+                            or (None if success else f"请求失败（{code}）"),
+                            latency=int((perf_counter() - started) * 1000),
+                            type=1 if success else 0,
+                        ),
                     )
-                    await create_log(db, log_data)
-            except Exception:
-                # 日志记录失败不影响正常请求
-                pass
-
-        return response
+            except SQLAlchemyError as exc:
+                logger.warning("操作日志写入失败（%s）", type(exc).__name__)

@@ -18,4 +18,4 @@ COPY . .
 EXPOSE 9000
 
 # 启动服务
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]
+CMD ["/app/.venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]

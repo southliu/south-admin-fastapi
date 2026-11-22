@@ -1,11 +1,12 @@
-from typing import Optional, List
+from typing import Any
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.system.log import SysLog
 from models.base import format_datetime
+from models.system.log import SysLog
 from schemas.log import CreateLogRequest
+from utils.audit import sanitize_params, sanitize_url
 
 
 async def create_log(db: AsyncSession, data: CreateLogRequest) -> SysLog:
@@ -14,8 +15,8 @@ async def create_log(db: AsyncSession, data: CreateLogRequest) -> SysLog:
         username=data.username,
         ip=data.ip,
         method=data.method,
-        url=data.url,
-        params=data.params,
+        url=sanitize_url(data.url),
+        params=sanitize_params(data.params),
         user_agent=data.user_agent,
         status=data.status,
         error=data.error,
@@ -24,7 +25,7 @@ async def create_log(db: AsyncSession, data: CreateLogRequest) -> SysLog:
     )
 
     db.add(log)
-    await db.commit()
+    await db.flush()
     return log
 
 
@@ -32,9 +33,9 @@ async def get_log_page(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 10,
-    username: Optional[str] = None,
-    log_type: int = -1
-) -> dict:
+    username: str | None = None,
+    log_type: int = -1,
+) -> dict[str, Any]:
     """获取日志分页列表"""
     query = select(SysLog)
 
@@ -50,24 +51,28 @@ async def get_log_page(
 
     # 分页查询
     offset = (page - 1) * page_size
-    query = query.offset(offset).limit(page_size).order_by(SysLog.create_at.desc())
+    query = (
+        query.offset(offset).limit(page_size).order_by(SysLog.create_at.desc())
+    )
     result = await db.execute(query)
     logs = result.scalars().all()
 
     # 构建返回数据
     items = []
     for log in logs:
-        items.append({
-            "id": log.id,
-            "username": log.username,
-            "ip": log.ip,
-            "method": log.method,
-            "url": log.url,
-            "status": log.status,
-            "error": log.error,
-            "type": log.type,
-            "createdAt": format_datetime(log.create_at),
-        })
+        items.append(
+            {
+                "id": log.id,
+                "username": log.username,
+                "ip": log.ip,
+                "method": log.method,
+                "url": log.url,
+                "status": log.status,
+                "error": log.error,
+                "type": log.type,
+                "createdAt": format_datetime(log.create_at),
+            }
+        )
 
     total_pages = total // page_size
     if total % page_size > 0:
@@ -84,25 +89,18 @@ async def get_log_page(
 
 async def delete_log(db: AsyncSession, log_id: int) -> None:
     """删除日志"""
-    result = await db.execute(
-        select(SysLog).where(SysLog.id == log_id)
-    )
+    result = await db.execute(select(SysLog).where(SysLog.id == log_id))
     log = result.scalar_one_or_none()
     if not log:
         raise ValueError("日志不存在")
 
     await db.delete(log)
-    await db.commit()
+    await db.flush()
 
 
-async def batch_delete_log(db: AsyncSession, log_ids: List[int]) -> None:
+async def batch_delete_log(db: AsyncSession, log_ids: list[int]) -> None:
     """批量删除日志"""
-    for log_id in log_ids:
-        result = await db.execute(
-            select(SysLog).where(SysLog.id == log_id)
-        )
-        log = result.scalar_one_or_none()
-        if log:
-            await db.delete(log)
-
-    await db.commit()
+    if not log_ids:
+        raise ValueError("请选择要删除的日志")
+    await db.execute(delete(SysLog).where(SysLog.id.in_(log_ids)))
+    await db.flush()

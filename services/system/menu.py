@@ -3,9 +3,9 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 
 from models.base import format_datetime
 from models.system.menu import SysMenu
@@ -53,8 +53,7 @@ async def get_menu_by_id(db: AsyncSession, menu_id: int) -> SysMenu | None:
     result = await db.execute(
         select(SysMenu)
         .where(and_(SysMenu.id == menu_id, SysMenu.is_deleted == 0))
-        .options(selectinload(SysMenu.permission))
-        .options(selectinload(SysMenu.children))
+        .options(raiseload("*"), selectinload(SysMenu.permission))
     )
     return result.scalar_one_or_none()
 
@@ -63,27 +62,19 @@ async def get_menu_list(
     db: AsyncSession, user_id: int
 ) -> list[dict[str, Any]]:
     """获取用户菜单列表"""
-    from services.system.user import get_user_by_id
+    from services.system.user import get_user_access
 
-    user = await get_user_by_id(db, user_id)
-    if not user:
-        return []
-
-    # 从角色关联的菜单中获取 permission_id
-    permission_ids = set()
-    for role in user.roles:
-        for menu in role.menus:
-            if menu.permission_id:
-                permission_ids.add(menu.permission_id)
-
-    if not permission_ids:
+    _, permissions = await get_user_access(db, user_id)
+    if not permissions:
         return []
 
     # 查询有权限的菜单ID（排除按钮类型）
     permitted_result = await db.execute(
-        select(SysMenu.id).where(
+        select(SysMenu.id)
+        .join(SysPermission)
+        .where(
             and_(
-                SysMenu.permission_id.in_(permission_ids),
+                SysPermission.name.in_(permissions),
                 SysMenu.is_deleted == 0,
                 SysMenu.type != 3,
             )
@@ -98,7 +89,7 @@ async def get_menu_list(
     result = await db.execute(
         select(SysMenu)
         .where(and_(SysMenu.is_deleted == 0, SysMenu.state == 1))
-        .options(selectinload(SysMenu.permission))
+        .options(raiseload("*"), selectinload(SysMenu.permission))
         .order_by(SysMenu.order)
     )
     all_menus = result.scalars().all()
@@ -130,20 +121,29 @@ async def get_menu_page(
             SysPermission, SysMenu.permission_id == SysPermission.id
         ).where(SysPermission.name.like(f"%{rule}%"))
 
-    # 查询总数
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar()
-
-    # 查询所有菜单并构建树形结构
-    query = query.options(selectinload(SysMenu.permission)).order_by(
-        SysMenu.order
+    matched_ids = set(
+        (await db.scalars(query.with_only_columns(SysMenu.id))).all()
     )
-    result = await db.execute(query)
-    menus = result.scalars().all()
-
-    # 构建树形结构（包含所有类型）
-    items = build_menu_tree(menus, None, include_button=True)
+    total = len(matched_ids)
+    result = await db.execute(
+        select(SysMenu)
+        .where(SysMenu.is_deleted == 0)
+        .options(raiseload("*"), selectinload(SysMenu.permission))
+        .order_by(SysMenu.order, SysMenu.id)
+    )
+    menus = list(result.scalars().all())
+    included_ids = set(matched_ids)
+    menus_by_id = {menu.id: menu for menu in menus}
+    for menu_id in matched_ids:
+        parent_id = menus_by_id[menu_id].parent_id
+        while parent_id in menus_by_id and parent_id not in included_ids:
+            included_ids.add(parent_id)
+            parent_id = menus_by_id[parent_id].parent_id
+    items = build_menu_tree(
+        [menu for menu in menus if menu.id in included_ids],
+        None,
+        include_button=True,
+    )
 
     total_pages = total // page_size
     if total % page_size > 0:
@@ -185,6 +185,14 @@ async def create_menu(
     db: AsyncSession, data: CreateMenuRequest, user_id: int
 ) -> SysMenu:
     """创建菜单"""
+    rules = [data.rule] if data.rule else []
+    rules.extend(
+        f"{data.rule}/{action}"
+        for action in data.actions or []
+        if action in ACTION_LABELS and data.rule
+    )
+    await _validate_rules(db, user_id, rules)
+    await _validate_parent(db, data.parent_id)
     permission_id = None
 
     # 如果有 rule，自动创建权限记录
@@ -255,18 +263,20 @@ async def create_menu(
                     ],
                 )
 
-    await db.commit()
+    await db.flush()
     return menu
 
 
 async def update_menu(
-    db: AsyncSession, menu_id: int, data: UpdateMenuRequest
+    db: AsyncSession, menu_id: int, data: UpdateMenuRequest, actor_id: int
 ) -> SysMenu:
     """更新菜单"""
     menu = await get_menu_by_id(db, menu_id)
     if not menu:
         raise ValueError("菜单不存在")
 
+    await _validate_rules(db, actor_id, [data.rule] if data.rule else [])
+    await _validate_parent(db, data.parent_id, menu_id)
     menu.label = data.label
     menu.label_en = data.label_en
 
@@ -298,7 +308,7 @@ async def update_menu(
     elif menu.permission:
         menu.permission = None
 
-    await db.commit()
+    await db.flush()
     await db.refresh(menu)
     return menu
 
@@ -314,24 +324,22 @@ async def delete_menu(db: AsyncSession, menu_id: int) -> None:
 
     menu.is_deleted = 1
     menu.deleted_at = datetime.now()
-    await db.commit()
+    await db.flush()
 
 
 async def batch_delete_menu(db: AsyncSession, menu_ids: list[int]) -> None:
     """批量删除菜单"""
-    # 先删除角色-菜单关联关系
+    if not menu_ids:
+        raise ValueError("请选择要删除的菜单")
     await db.execute(
         role_menu.delete().where(role_menu.c.menu_id.in_(menu_ids))
     )
-
-    # 软删除菜单
-    for menu_id in menu_ids:
-        menu = await get_menu_by_id(db, menu_id)
-        if menu:
-            menu.is_deleted = 1
-            menu.deleted_at = datetime.now()
-
-    await db.commit()
+    await db.execute(
+        update(SysMenu)
+        .where(SysMenu.id.in_(menu_ids), SysMenu.is_deleted == 0)
+        .values(is_deleted=1, deleted_at=datetime.now())
+    )
+    await db.flush()
 
 
 async def change_menu_state(
@@ -343,7 +351,7 @@ async def change_menu_state(
         raise ValueError("菜单不存在")
 
     menu.state = data.state
-    await db.commit()
+    await db.flush()
 
 
 def build_menu_tree(
@@ -395,3 +403,34 @@ def build_menu_tree(
         return tree
 
     return build_children(parent_id)
+
+
+async def _validate_parent(
+    db: AsyncSession, parent_id: int | None, menu_id: int | None = None
+) -> None:
+    if parent_id is None:
+        return
+    rows = await db.execute(
+        select(SysMenu.id, SysMenu.parent_id).where(SysMenu.is_deleted == 0)
+    )
+    parents = dict(rows.all())
+    if parent_id not in parents:
+        raise ValueError("父菜单不存在")
+    visited = {menu_id}
+    while parent_id is not None:
+        if parent_id in visited:
+            raise ValueError("菜单不能形成循环层级")
+        visited.add(parent_id)
+        parent_id = parents.get(parent_id)
+
+
+async def _validate_rules(
+    db: AsyncSession, actor_id: int, rules: list[str]
+) -> None:
+    from services.system.user import get_user_access
+
+    if not rules:
+        return
+    is_admin, permissions = await get_user_access(db, actor_id)
+    if not is_admin and not set(rules).issubset(permissions):
+        raise ValueError("不能分配自己未持有的权限规则")
