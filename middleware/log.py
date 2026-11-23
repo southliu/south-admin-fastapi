@@ -92,7 +92,6 @@ class LogMiddleware:
                             username=getattr(
                                 request.state, "audit_username", None
                             ),
-                            ip=request.client.host if request.client else None,
                             method=request.method,
                             url=str(request.url),
                             params=params.decode("utf-8", errors="replace")

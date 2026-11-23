@@ -170,6 +170,7 @@ class AuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.status, "error")
         self.assertEqual(entry.type, 0)
         self.assertEqual(entry.username, "tester")
+        self.assertNotIn("ip", entry.model_dump())
 
 
 if __name__ == "__main__":

@@ -13,7 +13,6 @@ async def create_log(db: AsyncSession, data: CreateLogRequest) -> SysLog:
     """创建日志"""
     log = SysLog(
         username=data.username,
-        ip=data.ip,
         method=data.method,
         url=sanitize_url(data.url),
         params=sanitize_params(data.params),
@@ -64,11 +63,11 @@ async def get_log_page(
             {
                 "id": log.id,
                 "username": log.username,
-                "ip": log.ip,
                 "method": log.method,
                 "url": log.url,
                 "status": log.status,
                 "error": log.error,
+                "latency": log.latency,
                 "type": log.type,
                 "createdAt": format_datetime(log.create_at),
             }
